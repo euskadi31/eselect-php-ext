@@ -53,6 +53,57 @@ get_libname() {
 	echo ${ret}
 }
 
+find_targets() {
+    local dir dirs libdir
+    for libdir in $(get_libdirs); do
+        for dir in "${EROOT}"${libdir}/php*.*; do
+            t=$(basename $dir)
+            has $t $dirs || dirs="${dirs} $t"
+        done
+    done
+  echo $dirs
+}
+
+find_targets_apache2() {
+    local target libdir
+    for target in $(find_targets); do
+        for libdir in $(get_libdirs); do
+            [[ -f ${EROOT}${libdir}/$target/apache2/libphp5$(get_libname) ]] && echo $target
+        done
+    done | sort -u
+}
+
+find_targets_cli() {
+    local target libdir
+    for target in $(find_targets); do
+        for libdir in $(get_libdirs); do
+            [[ -f ${EROOT}${libdir}/$target/bin/php ]] && echo $target
+        done
+    done | sort -u
+}
+
+find_targets_fpm() {
+    local target libdir
+    for target in $(find_targets); do
+        for libdir in $(get_libdirs); do
+            [[ -f ${EROOT}${libdir}/$target/bin/php-fpm ]] && echo $target
+        done
+    done | sort -u
+}
+
+find_targets_cgi() {
+    local target libdir
+    for target in $(find_targets); do
+        for libdir in $(get_libdirs); do
+            [[ -f ${EROOT}${libdir}/$target/bin/php-cgi ]] && echo $target
+        done
+    done | sort -u
+}
+
+check_version() {
+	has $2 $(find_targets_$1) || die -q "Please chose one of the following modules: \n$(find_targets_$1)"
+}
+
 get_active_cli() {
 	readlink -e "${EROOT}"/usr/bin/php | sed -ne "s:.*/usr/.*/\(php[0-9]\.[0-9][0-9]*\)/bin/php:\1:p"
 }
@@ -101,11 +152,12 @@ describe_list() {
 }
 
 describe_list_parameters() {
-	echo "<module>"
+	echo "<module> <php-version>"
 }
 
 describe_list_options() {
-	echo "module: one of ${MODULES}"
+	echo "module:       one of ${MODULES}"
+	echo "php-version:  PHP version (5.5, 5.4, 5.3) By default uses the activated php version"
 }
 
 do_list() {
@@ -113,11 +165,20 @@ do_list() {
 
 	local exts
 	local exts_active
-	local current_version
+	local version
 
-	current_version=$(get_active_$1)
-	exts=( $(find_exts $1 $current_version) )
-	exts_active=( $(find_exts_active $1 $current_version) )
+	if [ ! -z "$2" ]; then
+		version="php$2"
+	else
+		version=$(get_active_$1)
+	fi
+	
+	check_version $1 $version
+
+	echo "PHP Version : ${version}"
+
+	exts=( $(find_exts $1 $version) )
+	exts_active=( $(find_exts_active $1 $version) )
 
 	for (( i = 0; i < ${#exts[@]}; i++ )) ; do
 		for (( j = 0; j < ${#exts_active[@]}; j++ )) ; do
@@ -135,26 +196,34 @@ describe_set() {
 }
 
 describe_set_parameters() {
-	echo "<module> <target>"
+	echo "<module> <target> <php-version>"
 }
 
 describe_set_options() {
-	echo "module: one of ${MODULES}"
-	echo "target:   Target name or number (from the 'list' action)"
+	echo "module:       one of ${MODULES}"
+	echo "target:       Target name or number (from the 'list' action)"
+	echo "php-version:  PHP version (5.5, 5.4, 5.3) By default uses the activated php version"
 }
 
 do_set() {
 	check_module $1
-	local current_version
-	current_version=$(get_active_$1)
+	local version
 
-	local target=$(resolv_target $1 $current_version $2)
-	local src="$etc_path"/"$1"-"$current_version"/ext/"$target".ini
-	local dest="$etc_path"/"$1"-"$current_version"/ext-active/"$target".ini
+	if [ ! -z "$3" ]; then
+		version="php$3"
+	else
+		version=$(get_active_$1)
+	fi
+	
+	check_version $1 $version
+
+	local target=$(resolv_target $1 $version $2)
+	local src="$etc_path"/"$1"-"$version"/ext/"$target".ini
+	local dest="$etc_path"/"$1"-"$version"/ext-active/"$target".ini
 
 	[[ -z $target ]] && die -q "Bad target"
 
-	if [ ! -d "$etc_path"/"$1"-"$current_version" ]; then
+	if [ ! -d "$etc_path"/"$1"-"$version" ]; then
 		die -q "Module ${1} not found"
 	fi
 
@@ -171,26 +240,34 @@ describe_unset() {
 }
 
 describe_unset_parameters() {
-	echo "<module> <target>"
+	echo "<module> <target> <php-version>"
 }
 
 describe_unset_options() {
-	echo "module: one of ${MODULES}"
-	echo "target:   Target name or number (from the 'list' action)"
+	echo "module:      one of ${MODULES}"
+	echo "target:      Target name or number (from the 'list' action)"
+	echo "php-version: PHP version (5.5, 5.4, 5.3) By default uses the activated php version"
 }
 
 do_unset() {
 	check_module $1
-	local current_version
-	current_version=$(get_active_$1)
+	local version
 
-	local target=$(resolv_target $1 $current_version $2)
-	local src="$etc_path"/"$1"-"$current_version"/ext/"$target".ini
-	local dest="$etc_path"/"$1"-"$current_version"/ext-active/"$target".ini
+	if [ ! -z "$3" ]; then
+		version="php$3"
+	else
+		version=$(get_active_$1)
+	fi
+	
+	check_version $1 $version
+
+	local target=$(resolv_target $1 $version $2)
+	local src="$etc_path"/"$1"-"$version"/ext/"$target".ini
+	local dest="$etc_path"/"$1"-"$version"/ext-active/"$target".ini
 
 	[[ -z $target ]] && die -q "Bad target"
 
-	if [ ! -d "$etc_path"/"$1"-"$current_version" ]; then
+	if [ ! -d "$etc_path"/"$1"-"$version" ]; then
 		die -q "Module ${1} not found"
 	fi
 
