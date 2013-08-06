@@ -47,12 +47,12 @@ localhost ~ # eselect php-ext list fpm
   [3]   xdebug *
 ~~~
 
-Activate xdebug extension on current PHP
+Activate xdebug extension on current (activate php) PHP
 ~~~shell
 eselect php-ext set cli xdebug
 ~~~
 
-Deactivate http extension on current PHP
+Deactivate http extension on current (activate php) PHP
 ~~~shell
 eselect php-ext set cli http
 ~~~
