@@ -1,0 +1,200 @@
+# -*-eselect-*-  vim: ft=eselect
+# Copyright 2010-2011 Gentoo Foundation
+# Distributed under the terms of the GNU General Public License v2
+
+
+inherit config multilib
+
+DESCRIPTION="Manage php extensions"
+MAINTAINER="axel@etcheverry.biz"
+
+MODULES="cli apache2 fpm cgi"
+
+
+check_module() {
+	has $1 $(echo $MODULES) || die -q "Please chose one of the following modules: ${MODULES}"
+}
+
+etc_path=/etc/php
+
+get_libdirs() {
+	local dir libdirs
+	for dir in $(list_libdirs); do
+		[[ -L ${EROOT}/usr/${dir} ]] && continue
+		ls "${EROOT}"/usr/${dir}/php*.* > /dev/null 2>&1 || continue
+
+		libdirs+=' '/usr/${dir}
+	done
+	echo ${libdirs:-/usr/lib}
+}
+
+get_active_libdir() {
+	local dir
+	for dir in $(get_libdirs); do
+		echo ${dir}
+		return
+	done
+	echo /usr/lib
+}
+
+get_libname() {
+	# probe on a well-known library
+	local lib ret=.so
+	for lib in "${EROOT}"$(get_active_libdir)/libz.* ; do
+		case "${lib##*/}" in
+			libz.a)    ret=.a   ;; # some platforms use .a as ext
+			libz.*.*)  continue ;;
+			libz.*)
+				ret=${lib##*libz}
+				break
+				;;
+		esac
+	done
+	echo ${ret}
+}
+
+get_active_cli() {
+	readlink -e "${EROOT}"/usr/bin/php | sed -ne "s:.*/usr/.*/\(php[0-9]\.[0-9][0-9]*\)/bin/php:\1:p"
+}
+
+get_active_cgi() {
+	readlink -e "${EROOT}"/usr/bin/php-cgi | sed -ne "s:.*/usr/.*/\(php[0-9]\.[0-9]\)/bin/php-cgi:\1:p"
+}
+
+get_active_fpm() {
+	readlink -e "${EROOT}"/usr/bin/php-fpm | sed -ne "s:.*/usr/.*/\(php[0-9]\.[0-9]\)/bin/php-fpm:\1:p"
+}
+
+get_active_apache2() {
+	readlink -e "${EROOT}"$(get_active_libdir)/apache2/modules/libphp5$(get_libname) | sed -ne "s:.*/usr/.*/\(php[0-9]\.[0-9]\)/apache2/libphp5$(get_libname):\1:p"
+}
+
+find_exts() {
+	if [ -d "$etc_path"/"$1"-"$2" ]; then
+		for ext in "$etc_path"/"$1"-"$2"/ext/*.ini; do
+			echo $(basename $ext .ini)
+		done | sort -u
+	fi
+}
+
+find_exts_active() {
+	if [ -d "$etc_path"/"$1"-"$2" ]; then
+		for ext in "$etc_path"/"$1"-"$2"/ext-active/*.ini; do
+			echo $(basename $ext .ini)
+		done | sort -u
+	fi
+}
+
+resolv_target() {
+	local targets=( $(find_exts $1 $2) )
+	if is_number $3; then
+		[[ $3 -le ${#targets[@]} && $3 -gt 0 ]] && echo "${targets[ $(( $3 -1 )) ]}"
+	elif has $3 ${targets[@]}; then
+		echo $3
+	fi
+}
+
+## List action
+
+describe_list() {
+	echo "Lists available php extensions installs for a module"
+}
+
+describe_list_parameters() {
+	echo "<module>"
+}
+
+describe_list_options() {
+	echo "module: one of ${MODULES}"
+}
+
+do_list() {
+	check_module $1
+
+	local exts
+	local exts_active
+	local current_version
+
+	current_version=$(get_active_$1)
+	exts=( $(find_exts $1 $current_version) )
+	exts_active=( $(find_exts_active $1 $current_version) )
+
+	for (( i = 0; i < ${#exts[@]}; i++ )) ; do
+		for (( j = 0; j < ${#exts_active[@]}; j++ )) ; do
+			[[ ${exts_active[j]} == ${exts[i]} ]] && exts[i]=$(highlight_marker "${exts[i]}")
+		done
+	done
+	write_numbered_list -m "(none found)" "${exts[@]}"
+}
+
+
+## Set action
+
+describe_set() {
+	echo "Sets a php extensions for a module"
+}
+
+describe_set_parameters() {
+	echo "<module> <target>"
+}
+
+describe_set_options() {
+	echo "module: one of ${MODULES}"
+	echo "target:   Target name or number (from the 'list' action)"
+}
+
+do_set() {
+	check_module $1
+	local current_version
+	current_version=$(get_active_$1)
+
+	local target=$(resolv_target $1 $current_version $2)
+	local src="$etc_path"/"$1"-"$current_version"/ext/"$target".ini
+	local dest="$etc_path"/"$1"-"$current_version"/ext-active/"$target".ini
+
+	[[ -z $target ]] && die -q "Bad target"
+
+	if [ ! -d "$etc_path"/"$1"-"$current_version" ]; then
+		die -q "Module ${1} not found"
+	fi
+
+	if [ ! -L "$dest" ]; then
+		ln -sf $src $dest || \
+			die -q "Failed to create symlink for ${dest}"
+	fi
+}
+
+## Uset action
+
+describe_unset() {
+	echo "Unsets a php extensions for a module"
+}
+
+describe_unset_parameters() {
+	echo "<module> <target>"
+}
+
+describe_unset_options() {
+	echo "module: one of ${MODULES}"
+	echo "target:   Target name or number (from the 'list' action)"
+}
+
+do_unset() {
+	check_module $1
+	local current_version
+	current_version=$(get_active_$1)
+
+	local target=$(resolv_target $1 $current_version $2)
+	local src="$etc_path"/"$1"-"$current_version"/ext/"$target".ini
+	local dest="$etc_path"/"$1"-"$current_version"/ext-active/"$target".ini
+
+	[[ -z $target ]] && die -q "Bad target"
+
+	if [ ! -d "$etc_path"/"$1"-"$current_version" ]; then
+		die -q "Module ${1} not found"
+	fi
+
+	if [ -L "$dest" ]; then
+		rm $dest
+	fi
+}
