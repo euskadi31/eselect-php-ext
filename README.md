@@ -6,7 +6,7 @@ Activate and Deactivate php extensions on Gentoo.
 Install
 -------
 
-Copy a php-ext.eselect file in /usr/share/eselect/modules/ foler.
+Copy the `php-ext.eselect` file in the folder `/usr/share/eselect/modules/`
 
 Usage
 -----
@@ -52,7 +52,7 @@ Activate xdebug extension on current PHP
 eselect php-ext set cli xdebug
 ~~~
 
-deactivate http extension on current PHP
+Deactivate http extension on current PHP
 ~~~shell
 eselect php-ext set cli http
 ~~~
